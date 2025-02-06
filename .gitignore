@@ -1,0 +1,9 @@
+# Ignorer les fichiers de données et résultats générés
+data/
+outputs/
+
+# Ignorer les fichiers temporaires de RStudio
+.Rproj.user/
+.Rhistory
+.RData
+*.Rproj

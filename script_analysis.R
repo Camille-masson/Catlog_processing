@@ -1,14 +1,11 @@
 ### 0. LIBRARIES AND CONSTANTS ###
 #--------------------------------#
 
-# Nettoyage de la mémoire
-gc()
-
 # Chargement de la configuration
 source("config.R")
 
 # Définition de l'année d'analyse
-YEAR <- 2024
+YEAR <- 2022
 ALPAGES_TOTAL <- list(
   "2022" = c("Ane-et-Buyant", "Cayolle", "Combe-Madame", "Grande-Fesse", "Jas-des-Lievres", "Lanchatra", "Pelvas", "Sanguiniere", "Viso"),
   "2023" = c("Cayolle", "Crouzet", "Grande-Cabane", "Lanchatra", "Rouanette", "Sanguiniere", "Vacherie-de-Roubion", "Viso"),
@@ -24,8 +21,8 @@ if (FALSE) {  # Mettre TRUE pour exécuter
   source(file.path(functions_dir, "Functions_filtering.R"))
   
   raw_data_dir <- file.path(data_dir, paste0("Colliers_", YEAR, "_brutes"))
-  alpages <- c("Sanguiniere", "Cayolle")
-  output_file <- file.path(data_dir, paste0("Donnees_brutes_", YEAR, "_simplifiees.gpkg"))
+  alpages <- c("Viso")
+  output_file <- file.path(output_dir, paste0("Donnees_brutes_", YEAR, "_simplifiees.gpkg"))
   
   lapply(alpages, function(alpage) {
     collar_dir <- file.path(raw_data_dir, alpage)
@@ -40,3 +37,7 @@ if (FALSE) {  # Mettre TRUE pour exécuter
   }) %>% do.call(rbind, .) %>%
     writeVector(filename = output_file, overwrite = TRUE)
 }
+
+
+
+

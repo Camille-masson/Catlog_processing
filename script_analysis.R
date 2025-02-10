@@ -39,218 +39,156 @@ if (FALSE) {  # Mettre TRUE pour exécuter
 }
 
 
-
-
-### 1.2 BJONERAAS FILTER CALIBRATION ###
-#--------------------------------------#
-
-if (TRUE) {  # Remplace (F) par (TRUE) si tu veux exécuter directement
-  
-  # Chargement des fonctions et librairies nécessaires
+### 1.2 BJONERAAS FILTER CALIBRATION
+if (F) {
+  # Chargement des fonctions nécessaires
   source(file.path(functions_dir, "Functions_filtering.R"))
   source(file.path(functions_dir, "Functions_map_plot.R"))
-  library(dplyr)
-  library(terra)
+  # ENTREES
+  # Un dossier contenant les trajectoires brutes, au format csv issu des colliers catlog, rangées dans des sous-dossiers au nom de leurs alpages
+  raw_data_dir = file.path(data_dir,paste0("Colliers_",YEAR,"_brutes"))
+  # Un data.frame contenant les dates de pose et de retrait des colliers, Doit contenir les colonnes  "alpage", "date_pose" et "date_retrait"
+    AIF <- file.path(data_dir, paste0(YEAR,"_infos_alpages.csv"))
+  #Vérification du format du fichier (souvent mal formaté, attention csv UTF8)
+  AIF_data <- read.csv(AIF, sep = ",", header = TRUE, row.names = NULL, check.names = FALSE, encoding = "UTF-8")
   
-  # Définition des chemins
-  raw_data_dir <- file.path(data_dir, paste0("Colliers_", YEAR, "_brutes"))
-  AIF <- file.path(data_dir, paste0(YEAR, "_infos_alpages.csv"))
+  # L’alpage devant être traité
+  alpage = "Viso"
   
-  # Chargement des informations sur les alpages
-  AIF_data <- read.csv(AIF, sep = ",", header = TRUE, encoding = "UTF-8")
+  #Fichier pdf de sortie
+  pdf(file.path(output_dir,paste0("Filtering_calibration_",YEAR,"_",alpage,".pdf")), width = 9, height = 9)
   
-  # L’alpage à traiter
-  alpage <- "Viso"
+  # Liste des fichiers de données brutes pour l'alpage
+  files <- list.files(file.path(raw_data_dir, alpage), full.names = TRUE)
+  files <- files[1:3]  # Sélection des trois premiers fichiers
   
-  # Création du fichier PDF pour enregistrer les graphiques
-  output_pdf <- file.path(output_dir, "Filtering_calibration.pdf")
-  pdf(output_pdf, width = 9, height = 9)
-  
-  # Liste des fichiers de l'alpage concerné
-  collar_dir <- file.path(raw_data_dir, alpage)
-  files <- list.files(collar_dir, full.names = TRUE)
-  
-  # Sélection des 3 premiers fichiers pour le test (évite erreur si < 3 fichiers)
-  files <- files[1:min(3, length(files))]
-  
-  # Vérification qu'il y a bien des fichiers à traiter
-  if (length(files) == 0) {
-    stop("Aucun fichier GPS trouvé pour l'alpage: ", alpage)
-  }
-  
-  # Chargement des données GPS
-  data <- do.call(rbind, lapply(files, function(file) {
+  # Chargement et concaténation des données
+  data <- do.call(rbind, lapply(files, function(file) { 
     data <- load_catlog_data(file)
     data$ID <- file
-    return(data)
+    return(data) 
   }))
   
-  # Récupération des dates de suivi
-  beg_date <- as.POSIXct(get_alpage_info(alpage, AIF_data, "date_pose"), tz = "GMT", format = "%d/%m/%Y %H:%M")
-  end_date <- as.POSIXct(get_alpage_info(alpage, AIF_data, "date_retrait"), tz = "GMT", format = "%d/%m/%Y %H:%M")
+  # Récupération des dates de pose et de retrait du collier
+  beg_date = as.POSIXct(get_alpage_info(alpage, AIF, "date_pose"), tz="GMT", format="%d/%m/%Y %H:%M")
+  end_date = as.POSIXct(get_alpage_info(alpage, AIF, "date_retrait"), tz="GMT", format="%d/%m/%Y %H:%M")
+  data = date_filter(data, beg_date, end_date)
   
-  # Filtrage des données
-  data <- date_filter(data, beg_date, end_date)
-  
-  # Vérification qu'il reste des données après filtrage
-  if (nrow(data) == 0) {
-    stop("Erreur : Aucune donnée après filtrage pour l'alpage ", alpage)
-  }
-  
-  # Projection en Lambert 93
-  CRS_L93 <- "EPSG:2154"
+  # Projection des données en Lambert93
   data_xy <- data %>%
-    terra::vect(crs = "EPSG:4326") %>%
-    terra::project(CRS_L93) %>%
-    as.data.frame(geom = "XY")
+    terra::vect(crs="EPSG:4326") %>%
+    terra::project("EPSG:2154") %>%
+    as.data.frame(geom = "XY") %>%
+    head()
   
-  # Vérification si des données existent après transformation
-  if (nrow(data_xy) == 0) {
-    stop("Erreur : Aucune donnée après projection pour l'alpage ", alpage)
-  }
   
   # Histogramme des périodes d’échantillonnage
   temps <- diff(data_xy$date)
   temps <- as.numeric(temps, units = "mins")
-  hist(temps, nclass = 30, main = "Histogramme des périodes d’échantillonnage", xlab = "Temps (min)")
+  hist(temps, nclass = 30)
   
   # Histogramme des distances parcourues
-  dist <- sqrt(diff(data_xy$x)^2 + diff(data_xy$y)^2)
-  hist(dist, nclass = 30, main = "Histogramme des distances parcourues", xlab = "Distance (m)", xaxt = "n")
+  dist <- sqrt(diff(data_xy$x)^2+diff(data_xy$y)^2)
+  h <- hist(dist, nclass = 30, xlab='Distance (m)', xaxt="n")
   
-  ### Application du filtre avec plusieurs paramètres ###
-  medcrits <- c(750, 500, 750)
-  meancrits <- c(500, 500, 350)
-  spikesps <- c(1500, 1500, 1500)
-  spikecoss <- c(-0.95, -0.95, -0.95)
+  ### Test de différents filtres
+  # Parameters sets to be tested
+  medcrits = c(750, 500, 750)
+  meancrits = c(500, 500, 350)
+  spikesps = c(1500, 1500, 1500)
+  spikecoss = c(-0.95, -0.95, -0.95)
   
-  for (i in seq_along(medcrits)) {
-    trajectories <- position_filter(
-      data,
-      medcrit = medcrits[i],
-      meancrit = meancrits[i],
-      spikesp = spikesps[i],
-      spikecos = spikecoss[i]
-    )
+  for (i in 1:length(medcrits)) {
+    trajectories <- position_filter(data, medcrit=medcrits[i], meancrit=meancrits[i], spikesp=spikesps[i], spikecos=spikecoss[i])
     
-    minmax_xy <- get_minmax_L93(trajectories[!(trajectories$R1error | trajectories$R2error), ], buffer = 100)
+    minmax_xy = get_minmax_L93(trajectories[!(trajectories$R1error | trajectories$R2error ),], buffer = 100)
     
-    trajectories$errors <- 1
-    trajectories$errors[trajectories$R1error] <- 2
-    trajectories$errors[trajectories$R2error] <- 3
+    trajectories$errors = 1
+    trajectories$errors[trajectories$R1error] = 2
+    trajectories$errors[trajectories$R2error] = 3
     
     pal <- c("#56B4E9", "red", "black")
+    print(ggplot(trajectories, aes(x, y, col = errors)) +
+            geom_path(size = 0.2) +
+            geom_point(size = 0.3) +
+            coord_equal() +
+            xlim(minmax_xy$x_min, minmax_xy$x_max) + ylim(minmax_xy$y_min, minmax_xy$y_max) +
+            ggtitle(paste0("medcrit = ", medcrits[i], ", meancrit = ", meancrits[i], ", spikesp = ", spikesps[i], ", spikecos = ", spikecoss[i])) +
+            scale_colour_gradientn(colors=pal, guide="legend", breaks = c(1, 2, 3), labels = c("OK", "R1error", "R2error")))
     
-    print(
-      ggplot(trajectories, aes(x, y, col = errors)) +
-        geom_path(size = 0.2) +
-        geom_point(size = 0.3) +
-        coord_equal() +
-        xlim(minmax_xy$x_min, minmax_xy$x_max) +
-        ylim(minmax_xy$y_min, minmax_xy$y_max) +
-        ggtitle(paste0(
-          "medcrit = ", medcrits[i], ", meancrit = ", meancrits[i], 
-          ", spikesp = ", spikesps[i], ", spikecos = ", spikecoss[i]
-        )) +
-        scale_colour_gradientn(colors = pal, guide = "legend", breaks = c(1, 2, 3), labels = c("OK", "R1error", "R2error"))
-    )
-    
-    # Zoom sur les 5 premiers jours
-    trajectories <- trajectories %>% filter(date < beg_date + 3600 * 24 * 5)
-    
-    print(
-      ggplot(trajectories, aes(x, y, col = errors)) +
-        geom_path(size = 0.2) +
-        geom_point(size = 0.3) +
-        coord_equal() +
-        ggtitle(paste0(
-          "5 jours seulement, medcrit = ", medcrits[i], 
-          ", meancrit = ", meancrits[i], ", spikesp = ", spikesps[i], 
-          ", spikecos = ", spikecoss[i]
-        )) +
-        scale_colour_gradientn(colors = pal, guide = "legend", breaks = c(1, 2, 3), labels = c("OK", "R1error", "R2error"))
-    )
+    trajectories <- trajectories %>%
+      filter(date < beg_date + 3600*24*5)
+    print(ggplot(trajectories, aes(x, y, col = errors)) +
+            geom_path(size = 0.2) +
+            geom_point(size = 0.3) +
+            coord_equal() +
+            ggtitle(paste0("5 days only, medcrit = ", medcrits[i], ", meancrit = ", meancrits[i], ", spikesp = ", spikesps[i], ", spikecos = ", spikecoss[i])) +
+            scale_colour_gradientn(colors=pal, guide="legend", breaks = c(1, 2, 3), labels = c("OK", "R1error", "R2error")))
   }
-  
-  # Fermeture du fichier PDF
   dev.off()
-  
-  print("Calibration du filtre Bjorneraas terminée.")
 }
 
-
-### 1.3 FILTERING CATLOG DATA ###
-#--------------------------------------#
+##OK NORMALEMENT
 
 
-# Chargement des fonctions nécessaires
-source(file.path(functions_dir, "Functions_filtering.R"))
 
-# ENTREES
-# Un dossier contenant les trajectoires brutes (fichiers CSV issus des colliers Catlog), rangées dans des sous-dossiers au nom des alpages
-raw_data_dir <- file.path(data_dir, paste0("Colliers_", YEAR, "_brutes"))
-
-# Un fichier contenant les informations sur chaque individu équipé (dates de pose et de retrait, paramètres des colliers)
-IIF <- file.path(raw_data_dir, paste0(YEAR, "_colliers_poses.csv"))
-
-
-IFF <- read.csv(IIF)
-
-# Les alpages à traiter
-alpages <- c("Viso")
-
-# SORTIES
-# Un fichier .RDS contenant les trajectoires filtrées, avec coordonnées en Lambert93
-output_rds_file <- file.path(output_dir, paste0("Catlog_", YEAR, "_filtered.rds"))
-
-# Un fichier .csv contenant les performances des colliers (pourcentage de points éliminés, colliers défectueux...)
-indicator_file <- file.path(output_dir, paste0("catlog_", YEAR, "_filtering.csv"))
-
-# Boucle sur chaque alpage sélectionné
-for (alpage in alpages) {
-  print(paste("WORKING ON ALPAGE", alpage))
+### 1.3 FILTERING CATLOG DATA
+if (F) {
+  source(file.path(functions_dir, "Functions_filtering.R"))
+  # ENTREES
+  # Un dossier contenant les trajectoires brutes, au format csv issu des colliers catlog, rangées dans des sous-dossiers au nom de leurs alpages. Coordonnées en WSG84. Le nom des fichiers, sous la forme "ID_quelquechose.csv", sera utilisé pour déterminer l’ID du collier qui doit comporter 3 caractères.
+  raw_data_dir = file.path(data_dir,paste0("Colliers_",YEAR,"_brutes"))
+  # Un fichier contenant les informations sur chaque individu équipé, les dates de pose et de retrait des colliers, ainsi que la proportion de temps pour laquelle les colliers sont programmés pour être allumés (18h par jour = 0.75). Doit contenir les colonnes "Collier", "Alpage", "Espece", "Race", "date_pose", "date_retrait" et "proportion_jour_allume"
+  IIF = file.path(raw_data_dir, paste0(YEAR,"_colliers_poses.csv"))
   
-  # Définition du dossier contenant les données brutes de l'alpage
-  collar_dir <- file.path(raw_data_dir, alpage)
+  #Load and vérife data collier pose (format)
+  IFF_data <- read.csv(IIF, stringsAsFactors = FALSE, encoding = "UTF-8")
   
-  # Liste des fichiers CSV des trajectoires
-  collar_files <- list.files(collar_dir, pattern = ".csv", full.names = TRUE)
+  # Les alpages à traiter
+  alpages = c("Viso")
+  # SORTIES
+  # Un .RDS contenant les trajectoires filtrées (les nouvelles trajectoires sont ajoutées à la suite des trajectoires traitées précédemment). Coordonnées en Lambert93.
+  output_rds_file = file.path(output_dir, paste0("Catlog_",YEAR,"_filtered_",alpages,".rds"))
+  # Un .csv contenant les performances des colliers (pourcentages de points éliminés à chaque étape, colliers défectueux...)
+  indicator_file = file.path(output_dir, paste0(YEAR,"_filtering_",alpages,".csv"))
   
-  # Récupération des paramètres de filtrage depuis le fichier AIF
-  medcrit <- get_alpage_info(alpage, AIF, "medcrit")
-  meancrit <- get_alpage_info(alpage, AIF, "meancrit")
-  spikesp <- get_alpage_info(alpage, AIF, "spikesp")
-  spikecos <- as.numeric(gsub(",", ".", get_alpage_info(alpage, AIF, "spikecos")))
   
-  print(paste0("Bjorneraas filter parameters: medcrit=", medcrit, 
-               ", meancrit=", meancrit, ", spikesp=", spikesp, 
-               ", spikecos=", spikecos))
-  
-  # Filtrage des trajectoires et calcul des indicateurs de performance
-  indicators <- lapply(collar_files, function(collar) {
-    filter_one_collar(load_catlog_data(collar),
-                      collar, output_rds_file, alpage, beg_date, end_date, IIF,
-                      bjoneraas.medcrit = medcrit,
-                      bjoneraas.meancrit = meancrit,
-                      bjoneraas.spikesp = spikesp,
-                      bjoneraas.spikecos = spikecos)
-  }) %>%
-    do.call(rbind, .)
-  
-  # Agrégation des performances des colliers ayant fonctionné correctement
-  indicators_tot <- indicators %>%
-    filter(worked_until_end == 1) %>% # On exclut les colliers défectueux pour le calcul global
-    add_row(name = paste("TOTAL", alpage), 
-            worked_until_end = sum(.$worked_until_end), 
-            nloc = NA,
-            R1error = NA, 
-            R2error = NA,
-            error_perc = sum(.$nloc * .$error_perc) / sum(.$nloc), 
-            localisation_rate = mean(.$localisation_rate))
-  
-  # Ajout des statistiques globales aux indicateurs
-  indicators <- rbind(indicators, indicators_tot[nrow(indicators_tot),])
-  
-  # Écriture des résultats dans le fichier CSV des performances des colliers
-  write.table(indicators, file = indicator_file, append = TRUE, sep = ',', row.names = FALSE, col.names = FALSE)
+  for (alpage in alpages) {
+    print(paste("WORKING ON ALPAGE", alpage))
+    collar_dir <- file.path(raw_data_dir, alpage)
+    collar_files <- list.files(collar_dir, pattern = ".csv", full.names = TRUE)
+    
+    medcrit = get_alpage_info(alpage, AIF, "medcrit")
+    meancrit = get_alpage_info(alpage, AIF, "meancrit")
+    spikesp = get_alpage_info(alpage, AIF, "spikesp")
+    spikecos = as.numeric(gsub(",", ".", get_alpage_info(alpage, AIF, "spikecos")))
+    print(paste0("Bjorneraas filter parameters: medcrit=",medcrit,", meancrit=", meancrit, ", spikesp=", spikesp, ", spikecos=", spikecos))
+    print(collar_files)
+    
+    
+    # Filtrage des trajectoires et calcul des indicateurs
+    indicators <- lapply(collar_files, function(collar) {
+      filter_one_collar(
+        load_catlog_data(collar),  
+        basename(collar),  # On passe uniquement le nom du fichier
+        output_rds_file, alpage, beg_date, end_date, IIF,
+        bjoneraas.medcrit = medcrit,
+        bjoneraas.meancrit = meancrit,
+        bjoneraas.spikesp = spikesp,
+        bjoneraas.spikecos = spikecos
+      )
+    }) %>%
+      do.call(rbind, .)
+    
+    indicators_tot = indicators %>%
+      filter(worked_until_end == 1) %>% # to compute performance indicators at the alpage level, we remove defective collars
+      add_row(name = paste("TOTAL", alpage), worked_until_end = sum(.$worked_until_end), nloc = NA,
+              R1error = NA, R2error = NA,
+              error_perc = sum(.$nloc*.$error_perc)/sum(.$nloc), localisation_rate = mean(.$localisation_rate))
+    indicators = rbind(indicators, indicators_tot[nrow(indicators_tot),])
+    
+    write.table(indicators, file=indicator_file, append = T, sep=',', row.names=F, col.names=F)
+  }
 }
+
+str(IFF_data)

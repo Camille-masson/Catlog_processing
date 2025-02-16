@@ -1,9 +1,33 @@
-# Ignorer les fichiers de données et résultats générés
-data/
-outputs/
+# Ignorer tout sauf la structure des dossiers
 
-# Ignorer les fichiers temporaires de RStudio
-.Rproj.user/
-.Rhistory
-.RData
-*.Rproj
+# Functions/ (partagé intégralement)
+!Functions/
+
+# raster/ (partagé, mais sans le contenu)
+raster/*
+!raster/.gitkeep
+
+# data/ (partagé, sauf les fichiers sauf ceux dans Colliers_9999_brutes/)
+data/*
+!data/.gitkeep
+!data/Colliers_9999_brutes/
+!data/Colliers_9999_brutes/**
+
+# Ignorer les fichiers des autres années dans data/
+data/Colliers_[0-9][0-9][0-9][0-9]_brutes/
+
+# outputs/ (le dossier est partagé, mais pas son contenu)
+outputs/*
+!outputs/.gitkeep
+
+# Fichiers scripts (partagés intégralement)
+!config.R
+!script_analysis.R
+
+# Ignorer fichiers temporaires
+*.Rhistory
+*.Rproj.user
+*.RData
+*.log
+.DS_Store
+Thumbs.db
